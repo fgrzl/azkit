@@ -1,4 +1,4 @@
-module github.com/fgrzl/azstorage
+module github.com/fgrzl/azkit
 
 go 1.25
 

@@ -20,7 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fgrzl/azstorage/credentials"
+	"github.com/fgrzl/azkit/credentials"
 )
 
 const (
@@ -329,7 +329,7 @@ type HTTPTableClient struct {
 	tableName      string
 	accountName    string
 	accountKey     string
-	sasToken       string                     // SAS token for auth (alternative to SharedKey)
+	sasToken       string                                 // SAS token for auth (alternative to SharedKey)
 	managedCred    *credentials.ManagedIdentityCredential // For Bearer token auth
 	httpClient     *http.Client
 	allowInsecure  bool
