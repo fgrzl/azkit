@@ -953,6 +953,7 @@ func (c *HTTPTableClient) DeleteEntity(ctx context.Context, pk, rk string) error
 		return err
 	}
 	req.Header.Set("If-Match", "*") // Delete regardless of etag
+	req.Header.Set("Accept", "application/json;odata=nometadata")
 
 	resp, err := c.retryableRequest(ctx, req, nil)
 	if err != nil {
@@ -1202,6 +1203,9 @@ func (c *HTTPTableClient) signRequest(req *http.Request, method string, _ []byte
 	if contentType == "" {
 		contentType = "application/json"
 		req.Header.Set("Content-Type", contentType)
+	}
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", "application/json;odata=nometadata")
 	}
 
 	// Use Bearer token authentication if Managed Identity is configured
