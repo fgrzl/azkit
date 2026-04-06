@@ -1,4 +1,4 @@
-﻿# Base version for all branches (no tags required)
+# Base version for all branches (no tags required)
 mode: ContinuousDeployment
 next-version: 0.1.0
 
