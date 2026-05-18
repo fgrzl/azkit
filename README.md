@@ -8,8 +8,8 @@ Lightweight, native Go clients for **Azure Table Storage** and **Azure credentia
 
 | Package | Import | Purpose |
 |---------|--------|---------|
-| `tables` | `github.com/fgrzl/azkit/tables` | HTTP REST client for Azure Table Storage (CRUD, batch, query, paging) |
-| `credentials` | `github.com/fgrzl/azkit/credentials` | Shared-key and managed-identity token credentials |
+| `tables` | `github.com/fgrzl/azkit/tables` | HTTP REST client for Azure Table Storage (CRUD, batch, list) |
+| `credentials` | `github.com/fgrzl/azkit/credentials` | Shared-key and managed-identity token helpers (used by `kv` and other modules) |
 
 ## Quick start
 
@@ -19,26 +19,38 @@ go get github.com/fgrzl/azkit
 
 ```go
 import (
-    "github.com/fgrzl/azkit/credentials"
+    "context"
+    "encoding/json"
+
     "github.com/fgrzl/azkit/tables"
 )
 
-cred, _ := credentials.NewSharedKeyCredential(accountName, accountKey)
-client, _ := tables.NewHTTPTableClient(endpoint, tableName, cred)
+client, err := tables.NewHTTPTableClient(
+    "devstoreaccount1",
+    accountKey,
+    "MyTable",
+    true, // allowInsecure (Azurite / fazure)
+    "http://127.0.0.1:10002/devstoreaccount1",
+)
+body, _ := json.Marshal(tables.Entity{
+    PartitionKey: "users",
+    RowKey:       "user-1",
+    Value:        []byte(`{"name":"Ada"}`),
+})
+_ = client.AddEntity(context.Background(), body)
 ```
+
+For managed identity, use `NewHTTPTableClientWithManagedIdentity`. See [docs/getting-started.md](docs/getting-started.md).
 
 ## Documentation
 
-Full guides live in **[docs/](docs/README.md)**:
-
-- [Overview](docs/overview.md) — design goals and package layout
-- [Getting started](docs/getting-started.md) — credentials, first table operations
-- [Tables reference](docs/tables.md) — client API, batching, retries
+Full guides: **[docs/](docs/README.md)**
 
 ## Related
 
-- [CHANGELOG](CHANGELOG.md) — release notes
-- [fgrzl/kv](https://github.com/fgrzl/kv) — uses `azkit/credentials` for Azure Table backends
+- [CHANGELOG](CHANGELOG.md)
+- [CONTRIBUTING](CONTRIBUTING.md)
+- [fgrzl/kv](https://github.com/fgrzl/kv) — Azure Table backend uses `azkit/credentials`
 
 ## License
 

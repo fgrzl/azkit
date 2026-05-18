@@ -6,64 +6,86 @@
 go get github.com/fgrzl/azkit
 ```
 
-Requires Go 1.20+ (see `go.mod` for the version used in CI).
+Requires Go 1.25+ (see `go.mod`).
 
-## Credentials
-
-### Shared key (local dev, Azurite, fazure)
-
-```go
-cred, err := credentials.NewSharedKeyCredential("devstoreaccount1", accountKey)
-if err != nil {
-    return err
-}
-```
-
-### Managed identity / App Service token
-
-Use `credentials.NewTokenCredential` with the appropriate endpoint configuration for your hosting environment. Tokens refresh automatically before expiry.
-
-## Create a table client
+## Shared-key client (local dev, fazure, Azurite)
 
 ```go
 client, err := tables.NewHTTPTableClient(
-    "http://127.0.0.1:10002/devstoreaccount1", // or https://{account}.table.core.windows.net
+    "devstoreaccount1",
+    accountKey, // base64 account key
     "MyTable",
-    cred,
+    true, // allowInsecure — required for http://127.0.0.1 endpoints
+    "http://127.0.0.1:10002/devstoreaccount1",
 )
 ```
 
-## Insert and read an entity
+Arguments are `(accountName, accountKey, tableName, allowInsecure, customEndpoint)`. The custom endpoint is the full table service base URL (including account path for emulators).
+
+## Managed identity
 
 ```go
-entity := tables.Entity{
-    "PartitionKey": "users",
-    "RowKey":       "user-1",
-    "Name":         "Ada",
-}
+cred := credentials.NewManagedIdentityCredential("") // optional client ID; uses AZURE_CLIENT_ID when empty
+client, err := tables.NewHTTPTableClientWithManagedIdentity(
+    "myaccount",
+    cred,
+    "MyTable",
+    false,
+    "", // empty customEndpoint → https://{account}.table.core.windows.net
+)
+```
 
-if err := client.Insert(ctx, entity); err != nil {
+`credentials.NewSharedKeyCredential` is for callers such as `kv` that need account metadata; the table client takes the raw account key string directly.
+
+## Insert and read
+
+```go
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+
+    "github.com/fgrzl/azkit/tables"
+)
+
+body, err := json.Marshal(tables.Entity{
+    PartitionKey: "users",
+    RowKey:       "user-1",
+    Value:        []byte(`{"name":"Ada"}`),
+})
+if err != nil {
+    return err
+}
+if err := client.AddEntity(ctx, body); err != nil {
     return err
 }
 
-got, err := client.Get(ctx, "users", "user-1")
+raw, err := client.GetEntity(ctx, "users", "user-1")
+if err != nil {
+    return err
+}
+fmt.Println(string(raw))
 ```
 
-## Query with paging
+## List entities (paging)
 
 ```go
-pager := client.Query(ctx, tables.QueryOptions{
-    Filter: "PartitionKey eq 'users'",
-})
-
-for pager.Next() {
-    for _, e := range pager.Page() {
-        _ = e["Name"]
+pager := client.NewListEntitiesPager("PartitionKey eq 'users'", "", 100)
+for {
+    page, err := pager.FetchPage(ctx)
+    if err != nil {
+        return err
+    }
+    if len(page) == 0 {
+        break
+    }
+    for _, e := range page {
+        _ = e.PartitionKey
     }
 }
 ```
 
 ## Next steps
 
-- [Tables reference](tables.md) — batch operations, upsert modes, retries
-- [Overview](overview.md) — design constraints and package layout
+- [Tables reference](tables.md) — upsert modes, batch, retries, errors
+- [Overview](overview.md) — constructors and package layout

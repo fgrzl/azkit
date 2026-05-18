@@ -1,40 +1,62 @@
 # Tables reference
 
-The `tables` package exposes `HTTPTableClient` for Azure Table Storage REST API **2021-06-08**.
+The `tables` package exposes `HTTPTableClient` for Azure Table Storage REST API **2021-06-08** (`AzureAPIVersion` in `client.go`).
 
-## Client
+## Constructors
 
-`NewHTTPTableClient(endpoint, tableName, credential)` returns a client configured with:
+| Function | Authentication |
+|----------|----------------|
+| `NewHTTPTableClient(accountName, accountKey, tableName, allowInsecure, customEndpoint)` | Shared key |
+| `NewHTTPTableClientWithSAS(accountName, sasToken, tableName, allowInsecure, customEndpoint)` | SAS token |
+| `NewHTTPTableClientWithManagedIdentity(accountName, cred, tableName, allowInsecure, customEndpoint)` | Bearer token via `*credentials.ManagedIdentityCredential` |
 
-- Connection pooling and timeouts tuned for Table workloads
-- Automatic retries on transient failures (configurable attempts and backoff)
-- Shared-key or bearer token authorization depending on credential type
+`customEndpoint` overrides the default `https://{account}.table.core.windows.net` when non-empty (emulators, private endpoints).
+
+## Entity model
+
+```go
+type Entity struct {
+    PartitionKey string
+    RowKey       string
+    Value        []byte // optional payload; encoded in request JSON when set
+    Timestamp    string // populated on read
+}
+```
+
+Write methods accept **JSON bytes** that unmarshal into `Entity` (`AddEntity`, `UpsertEntity`).
 
 ## Entity operations
 
 | Method | Description |
 |--------|-------------|
-| `Insert` | Create-only insert |
-| `Upsert` | Insert or replace / merge modes |
-| `Update` | Replace with ETag precondition |
-| `Merge` | Partial update with ETag |
-| `Delete` | Remove by partition and row key |
-| `Get` | Single entity lookup |
-
-Entities are `map[string]any` values including `PartitionKey`, `RowKey`, and optional `Timestamp` / `etag` system properties.
+| `CreateTable(ctx)` | Create the table |
+| `AddEntity(ctx, data []byte)` | Insert-only |
+| `UpsertEntity(ctx, data []byte, mode string)` | `"Replace"` or `"Merge"` |
+| `DeleteEntity(ctx, pk, rk string)` | Delete by keys |
+| `GetEntity(ctx, pk, rk string) ([]byte, error)` | Raw JSON response body |
 
 ## Batch
 
-`SubmitBatch` accepts up to **100** operations per request. Mixed insert/update/delete batches follow Azure multipart envelope rules.
+| Method | Description |
+|--------|-------------|
+| `AddEntityBatch(ctx, entities [][]byte)` | Batch insert (up to 100 per Azure limit) |
+| `SubmitBatch(ctx, ops []BatchOp)` | Mixed insert/update/delete batch |
 
-## Query
+## List / query
 
-`Query` returns a pager over entities matching OData `$filter`, `$select`, and continuation tokens. Use `QueryOptions` for page size and partition scoping.
+`NewListEntitiesPager(filter, selectCols string, top int32) *ListEntitiesPager`
+
+- `FetchPage(ctx) ([]Entity, error)` — next page; empty slice when done
+- OData `$filter` and `$select` passed as strings; `top` defaults to 1000 when zero
+
+## Retries
+
+Transient failures use built-in retry: **3 attempts** with exponential backoff (`InitialRetryDelay` 100ms, `MaxRetryDelay` 10s). Not configurable on the client today.
 
 ## Errors
 
-Table service errors surface as typed errors where possible (not found, conflict, throttling). Callers should retry throttling responses; the client applies bounded retries by default.
+Azure errors parse into `*AzureError` with HTTP status and OData error code. Use `IsTransient()` for 429/503/408 style retries.
 
 ## Related code
 
-Source layout under `tables/`: `client.go`, `crud.go`, `batch.go`, `pager.go`, `retry.go`, `auth.go`.
+`tables/`: `client.go`, `crud.go`, `batch.go`, `pager.go`, `retry.go`, `auth.go`.
