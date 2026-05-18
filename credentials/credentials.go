@@ -2,18 +2,19 @@ package credentials
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/fgrzl/azkit/internal/httputil"
+	"github.com/fgrzl/azkit/internal/jwt"
+	"github.com/fgrzl/azkit/internal/validate"
 )
 
 const (
@@ -43,8 +44,8 @@ func NewSharedKeyCredential(accountName, accountKey string) (*SharedKeyCredentia
 	if accountKey == "" {
 		return nil, fmt.Errorf("account key is required")
 	}
-	if _, err := base64.StdEncoding.DecodeString(accountKey); err != nil {
-		return nil, fmt.Errorf("account key must be valid base64: %w", err)
+	if err := validate.AccountKeyBase64(accountKey); err != nil {
+		return nil, err
 	}
 	return &SharedKeyCredential{
 		AccountName: accountName,
@@ -64,6 +65,16 @@ type ManagedIdentityCredential struct {
 	identityEndpoint string // from IDENTITY_ENDPOINT env var (App Service / ACA)
 	identityHeader   string // from IDENTITY_HEADER env var
 	useAppService    bool   // true when running in ACA / App Service
+}
+
+// closeResponseBody closes the response body in-package so bodyclose can track Body.Close().
+func closeResponseBody(resp *http.Response) {
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	if err := resp.Body.Close(); err != nil {
+		slog.Debug("close response body", "error", err)
+	}
 }
 
 // imdsTokenResponse represents the response from Azure IMDS
@@ -95,11 +106,11 @@ func NewManagedIdentityCredential(clientID string) *ManagedIdentityCredential {
 		cred.identityEndpoint = identityEndpoint
 		cred.identityHeader = identityHeader
 		cred.useAppService = true
-		slog.Info("managed identity: using App Service/Container Apps endpoint",
+		slog.Debug("managed identity: using App Service/Container Apps endpoint",
 			"endpoint", identityEndpoint)
 	} else {
 		cred.imdsEndpoint = "http://169.254.169.254/metadata/identity/oauth2/token"
-		slog.Info("managed identity: using IMDS endpoint")
+		slog.Debug("managed identity: using IMDS endpoint")
 	}
 
 	return cred
@@ -147,7 +158,7 @@ func (c *ManagedIdentityCredential) GetToken(ctx context.Context) (string, error
 
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create %s request: %w", endpointType, err)
+		return "", fmt.Errorf("create %s request: %w", endpointType, err)
 	}
 
 	if c.useAppService {
@@ -161,15 +172,17 @@ func (c *ManagedIdentityCredential) GetToken(ctx context.Context) (string, error
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		slog.Warn("failed to call managed identity endpoint", "error", err, "endpoint_type", endpointType)
-		return "", fmt.Errorf("failed to call %s endpoint: %w", endpointType, err)
+		return "", fmt.Errorf("call %s endpoint: %w", endpointType, err)
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp)
 
-	// Extract request ID for debugging
 	requestID := resp.Header.Get("x-ms-request-id")
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := httputil.ReadResponseBody(resp)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
 		slog.Error("managed identity endpoint returned error",
 			"status", resp.StatusCode,
 			"request_id", requestID,
@@ -181,20 +194,18 @@ func (c *ManagedIdentityCredential) GetToken(ctx context.Context) (string, error
 	var tokenResp imdsTokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		slog.Error("failed to decode token response", "error", err, "request_id", requestID, "endpoint_type", endpointType)
-		return "", fmt.Errorf("failed to decode token response: %w", err)
+		return "", fmt.Errorf("decode token response: %w", err)
 	}
 
-	// Parse expiry time (Unix timestamp as string) - use strconv for better performance
 	expiresOn, err := strconv.ParseInt(tokenResp.ExpiresOn, 10, 64)
 	if err != nil {
 		slog.Error("failed to parse token expiry", "error", err, "expires_on", tokenResp.ExpiresOn, "endpoint_type", endpointType)
-		return "", fmt.Errorf("failed to parse token expiry: %w", err)
+		return "", fmt.Errorf("parse token expiry: %w", err)
 	}
 
 	c.tokenExpiry = time.Unix(expiresOn, 0)
 	c.token = tokenResp.AccessToken
 
-	// Log JWT claims for diagnostic purposes (audience, issuer, tenant, identity)
 	logJWTClaims(c.token, endpointType)
 
 	slog.Debug("successfully refreshed managed identity token",
@@ -205,61 +216,28 @@ func (c *ManagedIdentityCredential) GetToken(ctx context.Context) (string, error
 	return c.token, nil
 }
 
-// logJWTClaims decodes and logs key claims from a JWT access token for diagnostic purposes.
 func logJWTClaims(token, endpointType string) {
-	parts := strings.SplitN(token, ".", 3)
-	if len(parts) < 2 {
-		slog.Warn("managed identity: token is not a valid JWT (cannot inspect claims)",
-			"endpoint_type", endpointType)
-		return
-	}
-
-	payload := parts[1]
-	switch len(payload) % 4 {
-	case 2:
-		payload += "=="
-	case 3:
-		payload += "="
-	}
-
-	decoded, err := base64.URLEncoding.DecodeString(payload)
+	claims, err := jwt.DecodeClaims(token)
 	if err != nil {
-		slog.Warn("managed identity: failed to decode JWT payload",
+		slog.Warn("managed identity: cannot inspect JWT claims",
 			"error", err,
 			"endpoint_type", endpointType)
 		return
 	}
 
-	var claims map[string]interface{}
-	if err := json.Unmarshal(decoded, &claims); err != nil {
-		slog.Warn("managed identity: failed to parse JWT claims",
-			"error", err,
-			"endpoint_type", endpointType)
-		return
-	}
-
-	aud, _ := claims["aud"].(string)
-	iss, _ := claims["iss"].(string)
-	oid, _ := claims["oid"].(string)
-	sub, _ := claims["sub"].(string)
-	tid, _ := claims["tid"].(string)
-	appid, _ := claims["appid"].(string)
-
-	slog.Info("managed identity: JWT claims (diagnostic)",
-		"aud", aud,
-		"iss", iss,
-		"oid", oid,
-		"sub", sub,
-		"tid", tid,
-		"appid", appid,
+	slog.Debug("managed identity: JWT claims (diagnostic)",
+		"aud", jwt.ClaimString(claims, "aud"),
+		"iss", jwt.ClaimString(claims, "iss"),
+		"oid", jwt.ClaimString(claims, "oid"),
+		"sub", jwt.ClaimString(claims, "sub"),
+		"tid", jwt.ClaimString(claims, "tid"),
+		"appid", jwt.ClaimString(claims, "appid"),
 		"endpoint_type", endpointType,
 	)
 
-	expectedAud := "https://storage.azure.com"
-	if aud != "" && aud != expectedAud && aud != expectedAud+"/" {
+	if err := jwt.CheckStorageAudience(claims); err != nil {
 		slog.Error("managed identity: TOKEN AUDIENCE MISMATCH — this will cause 403 AuthenticationFailed",
-			"got_aud", aud,
-			"expected_aud", expectedAud,
+			"error", err,
 			"endpoint_type", endpointType,
 		)
 	}

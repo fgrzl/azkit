@@ -51,5 +51,16 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
       - name: Run Tests
-        run: go test ./... -v
+        run: go test ./... -coverprofile=coverage.out
+
+      - name: Coverage gate
+        run: |
+          pct=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}' | tr -d '%')
+          echo "Total coverage: ${pct}%"
+          awk -v p="$pct" 'BEGIN { exit !(p+0 >= 60) }' || { echo "Coverage below 60% threshold"; exit 1; }

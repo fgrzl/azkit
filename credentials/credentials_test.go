@@ -3,17 +3,15 @@ package credentials
 import (
 	"testing"
 
+	"github.com/fgrzl/azkit/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// validBase64AccountKey is a valid base64-encoded key for SharedKey tests.
-const validBase64AccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
-
 func TestShouldCreateCredentialWhenGivenValidAccountNameAndKey(t *testing.T) {
 	// Arrange
 	accountName := "myaccount"
-	accountKey := validBase64AccountKey
+	accountKey := testutil.ValidBase64AccountKey
 
 	// Act
 	cred, err := NewSharedKeyCredential(accountName, accountKey)
@@ -27,7 +25,7 @@ func TestShouldCreateCredentialWhenGivenValidAccountNameAndKey(t *testing.T) {
 
 func TestShouldReturnCredentialErrorWhenAccountNameIsEmpty(t *testing.T) {
 	// Arrange & Act
-	cred, err := NewSharedKeyCredential("", validBase64AccountKey)
+	cred, err := NewSharedKeyCredential("", testutil.ValidBase64AccountKey)
 
 	// Assert
 	require.Error(t, err)

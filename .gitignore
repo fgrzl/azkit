@@ -28,6 +28,6 @@ build/
 *.bak
 *.old
 .DS_Store
-coverage
-coverage.html
-tmp/
+*.prof
+bench_results.txt
+scripts/inventory.md

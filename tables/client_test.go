@@ -1,4 +1,4 @@
-package client
+package tables
 
 import (
 	"context"
@@ -9,12 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fgrzl/azkit/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// validBase64AccountKey is a valid base64-encoded key for client tests.
-const validBase64AccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
 
 // --- AzureError ---
 
@@ -208,7 +206,7 @@ func TestShouldCapDelayAtMaxRetryDelayWhenAttemptIsHigh(t *testing.T) {
 
 func TestShouldReturnErrorWhenAccountNameIsEmpty(t *testing.T) {
 	// Arrange
-	accountKey := validBase64AccountKey
+	accountKey := testutil.ValidBase64AccountKey
 
 	// Act
 	client, err := NewHTTPTableClient("", accountKey, "table", false, "")
@@ -238,7 +236,7 @@ func TestShouldReturnErrorWhenAccountKeyIsInvalidBase64(t *testing.T) {
 
 func TestShouldCreateClientWhenGivenValidInput(t *testing.T) {
 	// Act
-	client, err := NewHTTPTableClient("myaccount", validBase64AccountKey, "mytable", false, "")
+	client, err := NewHTTPTableClient("myaccount", testutil.ValidBase64AccountKey, "mytable", false, "")
 
 	// Assert
 	require.NoError(t, err)
@@ -259,7 +257,7 @@ func TestShouldSucceedCreatingTableWhenResponseIs201(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewHTTPTableClient("devstoreaccount1", validBase64AccountKey, "TestTable", false, server.URL)
+	client, err := NewHTTPTableClient("devstoreaccount1", testutil.ValidBase64AccountKey, "TestTable", false, server.URL)
 	require.NoError(t, err)
 
 	// Act
@@ -276,7 +274,7 @@ func TestShouldSucceedCreatingTableWhenResponseIs409TableExists(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewHTTPTableClient("devstoreaccount1", validBase64AccountKey, "TestTable", false, server.URL)
+	client, err := NewHTTPTableClient("devstoreaccount1", testutil.ValidBase64AccountKey, "TestTable", false, server.URL)
 	require.NoError(t, err)
 
 	// Act
@@ -290,11 +288,11 @@ func TestShouldReturnErrorWhenCreateTableResponseIs500(t *testing.T) {
 	// Arrange
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		_, _ = w.Write([]byte("internal error"))
 	}))
 	defer server.Close()
 
-	client, err := NewHTTPTableClient("devstoreaccount1", validBase64AccountKey, "TestTable", false, server.URL)
+	client, err := NewHTTPTableClient("devstoreaccount1", testutil.ValidBase64AccountKey, "TestTable", false, server.URL)
 	require.NoError(t, err)
 
 	// Act
@@ -314,7 +312,7 @@ func TestShouldReturnErrorWhenGetEntityResponseIs404(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := NewHTTPTableClient("devstoreaccount1", validBase64AccountKey, "TestTable", false, server.URL)
+	client, err := NewHTTPTableClient("devstoreaccount1", testutil.ValidBase64AccountKey, "TestTable", false, server.URL)
 	require.NoError(t, err)
 
 	// Act
@@ -331,11 +329,11 @@ func TestShouldReturnEntityWhenGetEntityResponseIs200(t *testing.T) {
 	body, _ := json.Marshal(want)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		_, _ = w.Write(body)
 	}))
 	defer server.Close()
 
-	client, err := NewHTTPTableClient("devstoreaccount1", validBase64AccountKey, "TestTable", false, server.URL)
+	client, err := NewHTTPTableClient("devstoreaccount1", testutil.ValidBase64AccountKey, "TestTable", false, server.URL)
 	require.NoError(t, err)
 
 	// Act
